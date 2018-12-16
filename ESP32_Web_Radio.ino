@@ -4,14 +4,13 @@
 // ESP32 Internet Radio Project     v1.00 
 // http://educ8s.tv/esp32-internet-radio
 
-#include <VS1053.h>  //https://github.com/baldram/ESP_VS1053_Library
+#include <VS1053.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <esp_wifi.h>
 #include <Nextion.h>
 #include <Arduino.h>
 #include "RadioStation.h"
-#include "AiEsp32RotaryEncoder.h"
 #include "config.h"
 
 //------------------------------------------------------------------------------
@@ -20,6 +19,8 @@
   #define VS1053_CS    32 
   #define VS1053_DCS   33  
   #define VS1053_DREQ  35 
+  #define MIN_VOLUME  75
+  #define MAX_VOLUME  100
   uint8_t volume = 90; // volume level 0-100
   uint8_t mp3buff[32];   // vs1053 likes 32 bytes at a time
   
@@ -37,7 +38,7 @@
 //------------------------------------------------------------------------------
 // freertos multitasking and queueing
 //------------------------------------------------------------------------------
-  #define QUEUELENGTH 256
+  #define QUEUELENGTH 512
   QueueHandle_t xQueueMp3;
   
   // Dimensions the buffer that the task being created will use as its stack.
@@ -56,10 +57,6 @@
     // loop forever
     while(true)
     {
-      // check queue depth. Audio buffer has to be at least 25% full
-      queue_depth = uxQueueMessagesWaiting(xQueueMp3);
-      if(queue_depth > (QUEUELENGTH / 4))
-      {
         // Receive a message on the created queue.  Block for 10 ticks if a
         // message is not immediately available.
         if( xQueueReceive( xQueueMp3, &( mp3chunk ), ( TickType_t ) 10 ) )
@@ -67,7 +64,6 @@
              // we now can consume mp3chunk
              player.playChunk(mp3chunk, 32);
         }
-      }
     }
   }
   
@@ -93,10 +89,10 @@
   // has to be changed in NexConfig.h (!)
   // #define nexSerial Serial2
   
-  NexText t0 = NexText(0, 2, "t0");
+  NexText t0 = NexText(0, 2, "t0");  
   NexButton b0 = NexButton(0, 3, "b0"); // next station
   NexButton b1 = NexButton(0, 4, "b1"); // previous station
-  NexSlider h0 = NexSlider(0, 5, "h0"); // loudness
+  NexSlider h0 = NexSlider(0, 5, "h0"); // volume
   
   // Register objects to the touch event list.
   NexTouch *nex_listen_list[] = 
@@ -140,48 +136,138 @@
 
 //------------------------------------------------------------------------------
 // Rotary Encoders
-// not working yet, I have no idea why. Interrupts not working?
+// copied from https://github.com/Edzelf/ESP32-Radio
 //------------------------------------------------------------------------------
-  #define ROTARY_ENCODER1_CLK_PIN 21
-  #define ROTARY_ENCODER1_DT_PIN 22
-  AiEsp32RotaryEncoder encoderStation = AiEsp32RotaryEncoder(ROTARY_ENCODER1_CLK_PIN, ROTARY_ENCODER1_DT_PIN, -1, -1);
-/*  
-  #define ROTARY_ENCODER2_CLK_PIN 16
-  #define ROTARY_ENCODER2_DT_PIN 4
-  AiEsp32RotaryEncoder encoderVolume = AiEsp32RotaryEncoder(ROTARY_ENCODER2_CLK_PIN, ROTARY_ENCODER2_DT_PIN, -1, -1);
-*/  
+  #define sv DRAM_ATTR static volatile    // alias
+
+  //-----------------------------------------------------------------------------
+  // radio station
+  //-----------------------------------------------------------------------------
+  #define ENC_STATION_CLK_PIN 21
+  #define ENC_STATION_DT_PIN 22
+  sv int16_t    rotationcount_station = 0;
+  int16_t       oldcount_station = 0;
+
+  //-----------------------------------------------------------------------------
+  static void IRAM_ATTR isr_enc_station()
+  //-----------------------------------------------------------------------------
+  {
+    sv uint32_t     old_state = 0x0001 ;                          // Previous state
+    sv int16_t      locrotcount = 0 ;                             // Local rotation count
+    uint8_t         act_state = 0 ;                               // The current state of the 2 PINs
+    uint8_t         inx ;                                         // Index in enc_state
+    sv const int8_t enc_states [] =                               // Table must be in DRAM (iram safe)
+    { 0,                    // 00 -> 00
+      -1,                   // 00 -> 01                           // dt goes HIGH
+      1,                    // 00 -> 10
+      0,                    // 00 -> 11
+      1,                    // 01 -> 00                           // dt goes LOW
+      0,                    // 01 -> 01
+      0,                    // 01 -> 10
+      -1,                   // 01 -> 11                           // clk goes HIGH
+      -1,                   // 10 -> 00                           // clk goes LOW
+      0,                    // 10 -> 01
+      0,                    // 10 -> 10
+      1,                    // 10 -> 11                           // dt goes HIGH
+      0,                    // 11 -> 00
+      1,                    // 11 -> 01                           // clk goes LOW
+      -1,                   // 11 -> 10                           // dt goes HIGH
+      0                     // 11 -> 11
+    } ;
+    // Read current state of CLK, DT pin. Result is a 2 bit binary number: 00, 01, 10 or 11.
+    act_state = ( digitalRead ( ENC_STATION_CLK_PIN ) << 1 ) +
+                  digitalRead ( ENC_STATION_DT_PIN ) ;
+    inx = ( old_state << 2 ) + act_state ;                        // Form index in enc_states
+    locrotcount += enc_states[inx] ;                              // Get delta: 0, +1 or -1
+    if ( locrotcount == 4 )
+    {
+      rotationcount_station++ ;                                   // Divide by 4
+      locrotcount = 0 ;
+    }
+    else if ( locrotcount == -4 )
+    {
+      rotationcount_station-- ;                                   // Divide by 4
+      locrotcount = 0 ;
+    }
+    old_state = act_state ;                                       // Remember current status
+  }
+
+  //-----------------------------------------------------------------------------
+  // volume
+  //-----------------------------------------------------------------------------
+  #define ENC_VOLUME_CLK_PIN 25
+  #define ENC_VOLUME_DT_PIN 26
+  sv int16_t    rotationcount_volume = volume;
+  int16_t       oldcount_volume = 0;
+
+  //-----------------------------------------------------------------------------
+  static void IRAM_ATTR isr_enc_volume()
+  //-----------------------------------------------------------------------------
+  {
+    sv uint32_t     old_state = 0x0001 ;                          // Previous state
+    sv int16_t      locrotcount = 0 ;                             // Local rotation count
+    uint8_t         act_state = 0 ;                               // The current state of the 2 PINs
+    uint8_t         inx ;                                         // Index in enc_state
+    sv const int8_t enc_states [] =  { 0,-1,1,0,1,0,0,-1,-1,0,0,1,0,1,-1,0 } ;
+    // Read current state of CLK, DT pin. Result is a 2 bit binary number: 00, 01, 10 or 11.
+    act_state = ( digitalRead ( ENC_VOLUME_CLK_PIN ) << 1 ) +
+                  digitalRead ( ENC_VOLUME_DT_PIN ) ;
+    inx = ( old_state << 2 ) + act_state ;                        // Form index in enc_states
+    locrotcount += enc_states[inx] ;                              // Get delta: 0, +1 or -1
+    if ( locrotcount == 4 )
+    {
+      rotationcount_volume++ ;                                    // Divide by 4
+      locrotcount = 0 ;
+    }
+    else if ( locrotcount == -4 )
+    {
+      rotationcount_volume-- ;                                    // Divide by 4
+      locrotcount = 0 ;
+    }
+    old_state = act_state ;                                       // Remember current status
+  }
+
   //------------------------------------------------------------------------------
   void encoderStation_loop() 
   //------------------------------------------------------------------------------
   {
     //lets see if anything changed
-    int16_t encoderDelta = encoderStation.encoderChanged();
-    
-    //optionally we can ignore whenever there is no change
-    if (encoderDelta == 0) 
+    if ( rotationcount_station != oldcount_station )
     {
-      return;
+      if ( rotationcount_station > stations.numStations )
+      {
+        rotationcount_station = 0;
+      }
+      if ( rotationcount_station < 0 )
+      {
+        rotationcount_station = stations.numStations;
+      }
+      oldcount_station = rotationcount_station;
+      stations.radioStation = rotationcount_station;  
     }
-    else
-    {
-      stations.radioStation = encoderStation.readEncoder();
-      t0.setText(stations.station[stations.radioStation].label);
-    }         
   }
-/*  
+  
   //------------------------------------------------------------------------------
   void encoderVolume_loop() 
   //------------------------------------------------------------------------------
   {
     //lets see if anything changed
-    int16_t encoderDelta = encoderVolume.encoderChanged();
-    
-    //optionally we can ignore whenever there is no change
-    if (encoderDelta == 0) return;
-
-    volume = encoderVolume.readEncoder();
+    if ( rotationcount_volume != oldcount_volume )
+    {
+      if ( rotationcount_volume > MAX_VOLUME )
+      {
+        rotationcount_volume = MAX_VOLUME;
+      }
+      if ( rotationcount_volume < MIN_VOLUME )
+      {
+        rotationcount_volume = MIN_VOLUME;
+      }
+      oldcount_volume = rotationcount_volume;
+      volume = (int) rotationcount_volume;
+      player.setVolume(volume); 
+    }
   }
-*/
+
 //------------------------------------------------------------------------------
 // Network
 //------------------------------------------------------------------------------
@@ -248,18 +334,6 @@ void setup ()
 {
     SPI.begin();
     
-    encoderStation.begin();
-    encoderStation.setup([]{encoderStation.readEncoder_ISR();});
-    encoderStation.setBoundaries(0, stations.numStations-1, true);
-    encoderStation.reset(0);
-    encoderStation.enable();
-/*    
-    encoderVolume.begin();
-    encoderVolume.setup([]{encoderVolume.readEncoder_ISR();});
-    encoderVolume.setBoundaries(75,100,false);
-    encoderVolume.reset(90);
-    encoderVolume.enable(); */
-
     /* Set the baudrate which is for debug and communicate with Nextion screen. */
     nexInit();
 
@@ -287,6 +361,16 @@ void setup ()
     t0.setText("Initialize MP3 board..."); 
     initMP3Decoder();
 
+    // initialize rotary encoder
+    pinMode(ENC_STATION_CLK_PIN, INPUT_PULLUP);
+    pinMode(ENC_STATION_DT_PIN, INPUT_PULLUP);
+    attachInterrupt ( digitalPinToInterrupt(ENC_STATION_CLK_PIN), isr_enc_station,   CHANGE ) ;
+    attachInterrupt ( digitalPinToInterrupt(ENC_STATION_DT_PIN),  isr_enc_station,   CHANGE ) ;   
+    pinMode(ENC_VOLUME_CLK_PIN, INPUT_PULLUP);
+    pinMode(ENC_VOLUME_DT_PIN, INPUT_PULLUP);
+    attachInterrupt ( digitalPinToInterrupt(ENC_VOLUME_CLK_PIN), isr_enc_volume,   CHANGE ) ;
+    attachInterrupt ( digitalPinToInterrupt(ENC_VOLUME_DT_PIN),  isr_enc_volume,   CHANGE ) ;   
+    
     // Create a queue capable of containing 32 messages a 32 bytes values.
     t0.setText("Creating queue...");      
     xQueueMp3 = xQueueCreate( QUEUELENGTH, // The number of items the queue can hold.
@@ -309,7 +393,7 @@ void setup ()
 void loop() 
 {
     encoderStation_loop();
-    //encoderVolume_loop();
+    encoderVolume_loop();
 
     // switch radio station
     if(stations.radioStation!=stations.previousRadioStation)
@@ -329,4 +413,4 @@ void loop()
     * the corresponding component[right page id and component id] in touch event list will be asked.
     */
     nexLoop(nex_listen_list);   
-}    
+}
