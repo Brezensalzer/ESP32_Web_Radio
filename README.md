@@ -6,11 +6,12 @@ Code changes:
 * multitasking and buffering - the mp3 player code is running in a separate task (freeRTOS), the mp3 chunks are buffered in a queue
 * Nextion HMI adapted to my 2.8" version of the display. Text is displayed dynamically with an art deco font. Buttons and a slider are used as controls (vs. physical buttons in the original project)
 * Nextion display is connected to "Serial2" (ESP32 pins 16 RXD & 17 TXD) - "Serial" is connected to the USB converter and gives trouble when uploading a sketch.
+* Station and volume control with rotary encoders
 
 Used libraries:
 * https://github.com/baldram/ESP_VS1053_Library
 * https://github.com/itead/ITEADLIB_Arduino_Nextion
-* https://github.com/igorantolic/ai-esp32-rotary-encoder
+* Rotary encoder code from https://github.com/Edzelf/ESP32-Radio
 
 Hardware:
 * ESP32 board (Node32s)
@@ -19,9 +20,7 @@ Hardware:
 * MP3 module "LC Technology VS1003/1053 MP3 CODEC"
 * Adafruit Stereo 2.1W Class D Audio Amplifier - TPA2012 (no noise!)
 * Adafruit Speaker - 3" Diameter - 4 Ohm 3 Watt, 2x
-
-Problems:
-* I'd like to use rotary encoders for station and volume control. While the example sketch from the library just works on a "blank" ESP32, it does not work in my more complex code. I have no idea why.
+* KY-040 Rotary Encoder, 2x
 
 Plan:
 * building a wooden artdeco enclosure. Search for "Rubis 70 Belgium 1933 artdeco".
