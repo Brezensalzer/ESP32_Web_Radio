@@ -23,4 +23,4 @@ Hardware:
 * KY-040 Rotary Encoder, 2x
 
 Plan:
-* building a wooden artdeco enclosure. Search for "Rubis 70 Belgium 1933 artdeco".
+* building a wooden artdeco enclosure: http://www.vintageradio.nl/radio%27s/rubis_type_72_engels.htm
