@@ -24,3 +24,11 @@ Hardware:
 
 Plan:
 * building a wooden artdeco enclosure: http://www.vintageradio.nl/radio%27s/rubis_type_72_engels.htm
+
+3D Drawings:
+* FreeCAD, step and stl files are now available.
+* My first version will be 3D printed
+
+<p align="center">
+  <img src="./Rubis/Rubis_70_render.png" width="800"/>
+</p>
