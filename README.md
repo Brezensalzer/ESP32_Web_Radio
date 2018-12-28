@@ -30,5 +30,5 @@ Plan:
 * My first version will be 3D printed
 
 <p align="center">
-  <img src="./Rubis/Rubis_70_render.png" width="800"/>
+  <img src="./Rubis/Rubis_printed.png" width="800"/>
 </p>
