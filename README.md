@@ -28,6 +28,7 @@ Plan:
 3D Drawings:
 * FreeCAD, step and stl files are now available.
 * My first version will be 3D printed
+* Youtube Video: https://youtu.be/TEc8J43VpVg
 
 <p align="center">
   <img src="./Rubis/Rubis_printed.jpg" width="800"/>
