@@ -3,6 +3,8 @@
 // Project based on
 // ESP32 Internet Radio Project     v1.00 
 // http://educ8s.tv/esp32-internet-radio
+//
+// Rotary Encoder only version
 
 #include <VS1053.h>
 #include <WiFi.h>
@@ -57,6 +59,11 @@
     // loop forever
     while(true)
     {
+       // check queue depth. Audio buffer has to be at least 25% full
+       queue_depth = uxQueueMessagesWaiting(xQueueMp3);
+       if(queue_depth > (QUEUELENGTH / 4))
+       {
+
         // Receive a message on the created queue.  Block for 10 ticks if a
         // message is not immediately available.
         if( xQueueReceive( xQueueMp3, &( mp3chunk ), ( TickType_t ) 10 ) )
@@ -64,6 +71,7 @@
              // we now can consume mp3chunk
              player.playChunk(mp3chunk, 32);
         }
+      }
     }
   }
   
@@ -89,50 +97,7 @@
   // has to be changed in NexConfig.h (!)
   // #define nexSerial Serial2
   
-  NexText t0 = NexText(0, 2, "t0");  
-  NexButton b0 = NexButton(0, 3, "b0"); // next station
-  NexButton b1 = NexButton(0, 4, "b1"); // previous station
-  NexSlider h0 = NexSlider(0, 5, "h0"); // volume
-  
-  // Register objects to the touch event list.
-  NexTouch *nex_listen_list[] = 
-  {
-      &b0, &b1, &h0,
-      NULL
-  };
-
-  //------------------------------------------------------------------------------
-  void b0PopCallback(void *ptr) // next station
-  //------------------------------------------------------------------------------
-  {
-    if(stations.radioStation < (stations.numStations - 1))
-      stations.radioStation++;
-    else
-      stations.radioStation = 0;
-    t0.setText(stations.station[stations.radioStation].label);      
-  }
-  
-  //------------------------------------------------------------------------------
-  void b1PopCallback(void *ptr) // prev station
-  //------------------------------------------------------------------------------
-  {
-    if(stations.radioStation > 0)
-      stations.radioStation--;
-    else
-      stations.radioStation = stations.numStations - 1;
-    t0.setText(stations.station[stations.radioStation].label);      
-  }
-  
-  //------------------------------------------------------------------------------
-  void h0PopCallback(void *ptr)
-  //------------------------------------------------------------------------------
-  {
-    uint32_t number = 0;
-    
-    h0.getValue(&number);
-    volume = (int) number;
-    player.setVolume(volume);
-  }
+  NexText t0 = NexText(0, 2, "t0");
 
 //------------------------------------------------------------------------------
 // Rotary Encoders
@@ -337,11 +302,6 @@ void setup ()
     /* Set the baudrate which is for debug and communicate with Nextion screen. */
     nexInit();
 
-    /* Register the pop event callback function of the current button component. */
-    b0.attachPop(b0PopCallback, &b0);
-    b1.attachPop(b1PopCallback, &b1);
-    h0.attachPop(h0PopCallback, &h0);
-    
     // connect to access point
     t0.setText("Connecting to WiFi...");      
     connectToWIFI();
@@ -407,10 +367,4 @@ void loop()
 
     // read tcp stream and fill queue  
     mp3stream();
-
-   /*
-    * When a pop or push event occured every time,
-    * the corresponding component[right page id and component id] in touch event list will be asked.
-    */
-    nexLoop(nex_listen_list);   
 }
