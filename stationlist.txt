@@ -1,6 +1,8 @@
-B5 aktuell;dg-br-http-dus-dtag-cdn.cast.addradio.de;/br/b5aktuell/live/mp3/128/stream.mp3;80
-BR Klassik;dg-br-http-dus-dtag-cdn.cast.addradio.de;/br/brklassik/live/mp3/128/stream.mp3;80
-Bayern 2;dg-br-http-dus-dtag-cdn.cast.addradio.de;/br/br2/sued/mp3/128/stream.mp3;80
+B5 aktuell;br-edge-2001.dus-lg.cdn.addradio.net;/br/b5aktuell/live/mp3/128/stream.mp3;80
+BR Klassik;br-edge-2001.dus-lg.cdn.addradio.net;/br/brklassik/live/mp3/128/stream.mp3;80
+Bayern 2;br-edge-2001.dus-lg.cdn.addradio.net;/br/br2/sued/mp3/128/stream.mp3;80
+Deutschlandfunk Kultur;dradio-edge-2091.dus-lg.cdn.addradio.net;/dradio/kultur/live/mp3/128/stream.mp3;80
+Radio Sonera;5.135.183.124;/stream;8391
 SmoothJazz;sj128.hnux.com;/;80
 City Jazz Radio;85.17.122.32;/stream;8252
-Barcelona Jazz;178.33.232.106;/;8034
+Barcelona Jazz;178.33.232.106;/stream;8034

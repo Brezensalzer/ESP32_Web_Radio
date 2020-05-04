@@ -3,8 +3,6 @@
 // Project based on
 // ESP32 Internet Radio Project     v1.00 
 // http://educ8s.tv/esp32-internet-radio
-//
-// Rotary Encoder only version
 
 #include <VS1053.h>
 #include <WiFi.h>
@@ -15,6 +13,13 @@
 #include "RadioStation.h"
 #include "config.h"
 
+// remote syslog debugging
+// https://github.com/alex18296/SimpleUDPLogger
+#define debug false
+#define LOGSERVER      "x.x.x.x"
+#define UDP_LOGGER
+#include <SimpleUDPLogger.h>
+
 //------------------------------------------------------------------------------
 // mp3 module
 //------------------------------------------------------------------------------
@@ -23,7 +28,7 @@
   #define VS1053_DREQ  35 
   #define MIN_VOLUME  75
   #define MAX_VOLUME  100
-  uint8_t volume = 90; // volume level 0-100
+  uint8_t volume = 82; // volume level 0-100
   uint8_t mp3buff[32];   // vs1053 likes 32 bytes at a time
   
   VS1053 player(VS1053_CS, VS1053_DCS, VS1053_DREQ);
@@ -40,13 +45,13 @@
 //------------------------------------------------------------------------------
 // freertos multitasking and queueing
 //------------------------------------------------------------------------------
-  #define QUEUELENGTH 512
+  #define QUEUELENGTH 1024
   QueueHandle_t xQueueMp3;
   
   // Dimensions the buffer that the task being created will use as its stack.
   // NOTE:  This is the number of bytes the stack will hold, not the number of
   // words as found in vanilla FreeRTOS.
-  #define STACK_SIZE 32768
+  #define STACK_SIZE 65536
   TaskHandle_t xHandle = NULL;
   
   //------------------------------------------------------------------------------
@@ -59,19 +64,14 @@
     // loop forever
     while(true)
     {
-       // check queue depth. Audio buffer has to be at least 25% full
-       queue_depth = uxQueueMessagesWaiting(xQueueMp3);
-       if(queue_depth > (QUEUELENGTH / 4))
-       {
-
         // Receive a message on the created queue.  Block for 10 ticks if a
         // message is not immediately available.
         if( xQueueReceive( xQueueMp3, &( mp3chunk ), ( TickType_t ) 10 ) )
         {
              // we now can consume mp3chunk
              player.playChunk(mp3chunk, 32);
+             yield();
         }
-      }
     }
   }
   
@@ -97,7 +97,7 @@
   // has to be changed in NexConfig.h (!)
   // #define nexSerial Serial2
   
-  NexText t0 = NexText(0, 2, "t0");
+  NexText t0 = NexText(0, 2, "t0");  
 
 //------------------------------------------------------------------------------
 // Rotary Encoders
@@ -230,6 +230,7 @@
       oldcount_volume = rotationcount_volume;
       volume = (int) rotationcount_volume;
       player.setVolume(volume); 
+      UDP_LOG_INFO("set volume to %lu", volume);
     }
   }
 
@@ -242,11 +243,16 @@
   void connectToWIFI()
   //------------------------------------------------------------------------------
   {
+    if(debug) {Serial.print("Connecting to Wifi");}
+    WiFi.mode(WIFI_STA);
+    WiFi.persistent(false);
     WiFi.begin(ssid, pass);
-      while (WiFi.status() != WL_CONNECTED) 
-      {
-        delay(500);
-      }
+    while (WiFi.status() != WL_CONNECTED) 
+    {
+      if(debug) {Serial.print(".");}
+      delay(500);
+    }
+    if(debug) {Serial.println("\nWifi connected");}  
   }
 
   //------------------------------------------------------------------------------
@@ -258,7 +264,11 @@
       client.print(String("GET ") + stations.station[station_no].path + " HTTP/1.1\r\n" +
                  "Host: " + stations.station[station_no].host + "\r\n" + 
                  "Connection: close\r\n\r\n");   
-      t0.setText(stations.station[station_no].label);      
+      t0.setText(stations.station[station_no].label);
+      if(debug) { 
+        Serial.println(stations.station[station_no].label);
+        UDP_LOG_INFO(stations.station[station_no].label); 
+      }
     }
   }
 
@@ -287,7 +297,13 @@
         // Send a chunk.  Wait for 10 ticks for space to become
         // available if necessary.
         if( xQueueSend( xQueueMp3, ( void * ) &mp3buff, ( TickType_t ) 10 ) != pdPASS )
-        { } // Failed to post the message, even after 10 ticks.
+        { // Failed to post the message, even after 10 ticks.
+          t0.setText("Error writing to queue!");
+          if(debug) { 
+            Serial.println("Error writing to queue!");
+            UDP_LOG_ERROR("Error writing to queue!"); 
+          }
+        } 
         num_chunks--;
     }
   }
@@ -297,6 +313,7 @@
 //------------------------------------------------------------------------------
 void setup () 
 {
+    if(debug) { Serial.begin(115200); }
     SPI.begin();
     
     /* Set the baudrate which is for debug and communicate with Nextion screen. */
@@ -306,7 +323,17 @@ void setup ()
     t0.setText("Connecting to WiFi...");      
     connectToWIFI();
 
+    // setup rsyslog
+    if(debug) { 
+      UDP_LOG_BEGIN(LOGSERVER, LOG_MODE_DEBUG);
+      UDP_LOG_INFO("Starting Rubis Internet Radio");
+    }
+
     // import station list
+    if(debug) { 
+      Serial.println("Reading station list...");
+      UDP_LOG_INFO("Reading station list...");
+    }
     t0.setText("Reading station list...");      
     HTTPClient  http;
     http.begin(url_stationlist);
@@ -318,9 +345,23 @@ void setup ()
     } 
 
     // initialize the mp3 board
-    t0.setText("Initialize MP3 board..."); 
+    if(debug) { 
+      Serial.println("Initializing MP3 board...");
+      UDP_LOG_INFO("Initializing MP3 board...");
+    }
+    t0.setText("Initializing MP3 board..."); 
     initMP3Decoder();
-
+    if (!player.isChipConnected())
+    { 
+      if(debug) { 
+        Serial.println("MP3 board failed!"); 
+        UDP_LOG_ERROR("MP3 board failed!");
+      }
+      t0.setText("MP3 board failed!");
+      while(true)
+        delay(1000);
+    }
+    
     // initialize rotary encoder
     pinMode(ENC_STATION_CLK_PIN, INPUT_PULLUP);
     pinMode(ENC_STATION_DT_PIN, INPUT_PULLUP);
@@ -337,6 +378,10 @@ void setup ()
                               32 );        // The size of each item in the queue
 
     // Create the mp3 player task
+    if(debug) { 
+      Serial.println("Creating mp3 player task...");
+      UDP_LOG_INFO("Creating mp3 player task...");
+    }
     t0.setText("Creating mp3 player task..."); 
     xTaskCreate(
                   task_mp3play,   // Function that implements the task.
@@ -362,9 +407,13 @@ void loop()
         mp3Flush();                   // clear mp3 queue from previous station
         station_connect(stations.radioStation);
         stations.previousRadioStation = stations.radioStation;
+        mp3stream();  // prefill Queue
         vTaskResume( xHandle ); 
     }
 
     // read tcp stream and fill queue  
     mp3stream();
+
+    // house keeping
+    yield();
 }
