@@ -259,16 +259,74 @@
   void station_connect (int station_no ) 
   //------------------------------------------------------------------------------
   {
-    if (client.connect(stations.station[station_no].host, stations.station[station_no].port ))
+    client.stop(); // stop old connection
+    boolean isConnected = false;
+    char host[50];
+    char path[50];
+    int iport;
+
+    //-------------------------------
+    //--- check for http redirect ---
+    //-------------------------------
+    char url[100];
+    char port[6];
+    const char* headerNames[] = { "Location" };
+    String Location;
+    int pos1, pos2;
+    strcpy(url, "http://");
+    strcat(url, stations.station[station_no].host);
+    strcat(url, ":");
+    itoa(stations.station[station_no].port, port, 10);
+    strcat(url, port);
+    strcat(url, "/");
+    strcat(url, stations.station[station_no].path);
+
+    HTTPClient http;
+    http.begin(url);
+    http.collectHeaders(headerNames, sizeof(headerNames)/sizeof(headerNames[0]));
+    int httpCode = http.GET();    
+
+    //------- follow redirect -----------
+    if (httpCode == 302)
+    {
+      if(debug) { Serial.println("following redirect"); }
+      UDP_LOG_INFO("following redirect");
+      if(debug) { Serial.println(http.header("Location")); }
+      Location = http.header("Location");
+      Location = Location.substring(7);   // remove http://
+      pos1 = Location.indexOf('/');       // extract host
+      Location.substring(0, pos1).toCharArray(host, pos1+1);
+      pos2 = Location.indexOf('?');       // extract path
+      if (pos2 == -1)
+      { pos2 = Location.length();}
+      Location.substring(pos1, pos2).toCharArray(path, pos2+1);
+      iport = stations.station[station_no].port;
+    }
+    else
+    {
+      strcpy(host, stations.station[station_no].host);
+      strcpy(path, stations.station[station_no].path);
+      iport = stations.station[station_no].port;
+    }
+    http.end();
+    //-------------------------------
+
+    isConnected = client.connect(host, iport); 
+    yield();
+    
+    if (isConnected)
     {       
-      client.print(String("GET ") + stations.station[station_no].path + " HTTP/1.1\r\n" +
-                 "Host: " + stations.station[station_no].host + "\r\n" + 
-                 "Connection: close\r\n\r\n");   
-      t0.setText(stations.station[station_no].label);
-      if(debug) { 
-        Serial.println(stations.station[station_no].label);
-        UDP_LOG_INFO(stations.station[station_no].label); 
-      }
+      client.print(String("GET ") + path + " HTTP/1.1\r\n" +
+                 "Host: " + host + "\r\n" + 
+                 "Connection: close\r\n\r\n");
+      t0.setText(stations.station[station_no].label);                 
+      if(debug) { Serial.println(stations.station[station_no].label); }
+      UDP_LOG_INFO(stations.station[station_no].label);      
+    }
+    else
+    {
+      if(debug) { Serial.println("connection to station failed"); }
+      UDP_LOG_INFO("connection to station failed");            
     }
   }
 
@@ -343,7 +401,8 @@ void setup ()
       String payload = http.getString();
       stations.parseStations(payload);
     } 
-
+	http.end();
+	
     // initialize the mp3 board
     if(debug) { 
       Serial.println("Initializing MP3 board...");
