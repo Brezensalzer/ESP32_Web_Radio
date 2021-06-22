@@ -12,11 +12,9 @@ class RadioStation
 {
   public:
     char    label[25];
-    char    host[50];
-    char    path[50];
-    int port;
+    char    url[100];
     // default constructor
-    RadioStation() : label(), host(), path(), port(0)
+    RadioStation() : label(), url()
     {    }
 };
 
@@ -25,7 +23,7 @@ class RadioStation
 class StationList
 {
   public:
-    RadioStation  station[MAXSTATIONS];   // declare an object of class 
+    RadioStation  station[MAXSTATIONS];        // declare an object of class 
     uint16_t numStations = 0;                  // number of available stations
     uint16_t radioStation = 0;                 // index of choosen station 
     uint16_t previousRadioStation = -1;

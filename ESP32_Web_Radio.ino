@@ -13,10 +13,8 @@
 #include "RadioStation.h"
 #include "config.h"
 
-// remote syslog debugging
-// https://github.com/alex18296/SimpleUDPLogger
-#define debug false
-#define LOGSERVER      "x.x.x.x"
+#define DEBUG false
+#define LOGSERVER      "192.168.1.4"
 #define UDP_LOGGER
 #include <SimpleUDPLogger.h>
 
@@ -237,96 +235,90 @@
 //------------------------------------------------------------------------------
 // Network
 //------------------------------------------------------------------------------
-  WiFiClient  client; 
+  HTTPClient http;
+  WiFiClient * client; 
 
   //------------------------------------------------------------------------------
   void connectToWIFI()
   //------------------------------------------------------------------------------
   {
-    if(debug) {Serial.print("Connecting to Wifi");}
+    if(DEBUG) {Serial.print("Connecting to Wifi");}
     WiFi.mode(WIFI_STA);
     WiFi.persistent(false);
     WiFi.begin(ssid, pass);
     while (WiFi.status() != WL_CONNECTED) 
     {
-      if(debug) {Serial.print(".");}
+      if(DEBUG) {Serial.print(".");}
       delay(500);
     }
-    if(debug) {Serial.println("\nWifi connected");}  
+    if(DEBUG) {Serial.println("\nWifi connected");}  
   }
 
   //------------------------------------------------------------------------------
   void station_connect (int station_no ) 
   //------------------------------------------------------------------------------
   {
-    client.stop(); // stop old connection
+    if (http.connected())
+    {
+      http.end(); // stop old connection
+    }
     boolean isConnected = false;
-    char host[50];
-    char path[50];
-    int iport;
 
+    char rc[4];
+    int httpCode;  
+    char url[100];
+    const char* headerNames[] = { "Location" };
+    String Location;
+    int pos;
+    
+    if(DEBUG) { Serial.println(stations.station[station_no].label); }
+    if(DEBUG) { Serial.println(stations.station[station_no].url); }
+    UDP_LOG_INFO(stations.station[station_no].label);      
+    UDP_LOG_INFO(stations.station[station_no].url);
+
+    t0.setText(stations.station[station_no].label);                 
+    
     //-------------------------------
     //--- check for http redirect ---
     //-------------------------------
-    char url[100];
-    char port[6];
-    const char* headerNames[] = { "Location" };
-    String Location;
-    int pos1, pos2;
-    strcpy(url, "http://");
-    strcat(url, stations.station[station_no].host);
-    strcat(url, ":");
-    itoa(stations.station[station_no].port, port, 10);
-    strcat(url, port);
-    strcat(url, "/");
-    strcat(url, stations.station[station_no].path);
-
-    HTTPClient http;
-    http.begin(url);
+    http.begin(stations.station[station_no].url);
     http.collectHeaders(headerNames, sizeof(headerNames)/sizeof(headerNames[0]));
-    int httpCode = http.GET();    
+    httpCode = http.GET();    
 
     //------- follow redirect -----------
     if (httpCode == 302)
     {
-      if(debug) { Serial.println("following redirect"); }
+      if(DEBUG) { Serial.println("following redirect"); }
       UDP_LOG_INFO("following redirect");
-      if(debug) { Serial.println(http.header("Location")); }
       Location = http.header("Location");
-      Location = Location.substring(7);   // remove http://
-      pos1 = Location.indexOf('/');       // extract host
-      Location.substring(0, pos1).toCharArray(host, pos1+1);
-      pos2 = Location.indexOf('?');       // extract path
-      if (pos2 == -1)
-      { pos2 = Location.length();}
-      Location.substring(pos1, pos2).toCharArray(path, pos2+1);
-      iport = stations.station[station_no].port;
+      pos = Location.indexOf('?');
+      if (pos == -1)
+      {
+        Location.toCharArray(url, Location.length()+1);
+      }
+      else
+      {
+        Location.toCharArray(url, pos+1);
+      }
+      if(DEBUG) { Serial.println(url); }
+      UDP_LOG_INFO(url);
+
+      http.end();
+      http.begin(url);
+      httpCode = http.GET();
     }
-    else
-    {
-      strcpy(host, stations.station[station_no].host);
-      strcpy(path, stations.station[station_no].path);
-      iport = stations.station[station_no].port;
-    }
-    http.end();
     //-------------------------------
 
-    isConnected = client.connect(host, iport); 
-    yield();
-    
-    if (isConnected)
-    {       
-      client.print(String("GET ") + path + " HTTP/1.1\r\n" +
-                 "Host: " + host + "\r\n" + 
-                 "Connection: close\r\n\r\n");
-      t0.setText(stations.station[station_no].label);                 
-      if(debug) { Serial.println(stations.station[station_no].label); }
-      UDP_LOG_INFO(stations.station[station_no].label);      
+    if (httpCode == HTTP_CODE_OK)
+    {
+      client = http.getStreamPtr();
+      isConnected = true;
     }
     else
     {
-      if(debug) { Serial.println("connection to station failed"); }
-      UDP_LOG_INFO("connection to station failed");            
+      if(DEBUG) { Serial.println("connection to station failed"); }
+      UDP_LOG_INFO("connection to station failed");
+      t0.setText("Station Error");            
     }
   }
 
@@ -338,7 +330,7 @@
     uint16_t    num_chunks;
     
     // how many chunks are in the tcp buffer?
-    num_chunks = client.available() / 32;
+    num_chunks = client->available() / 32;
 
     // avoid queue overflow
     queue_depth = uxQueueMessagesWaiting(xQueueMp3);
@@ -351,16 +343,14 @@
     // fill queue with mp3 chunks
     while (num_chunks > 0)
     {
-        uint8_t bytesread = client.read(mp3buff, 32);
+        uint8_t bytesread = client->read(mp3buff, 32);
         // Send a chunk.  Wait for 10 ticks for space to become
         // available if necessary.
         if( xQueueSend( xQueueMp3, ( void * ) &mp3buff, ( TickType_t ) 10 ) != pdPASS )
         { // Failed to post the message, even after 10 ticks.
           t0.setText("Error writing to queue!");
-          if(debug) { 
-            Serial.println("Error writing to queue!");
-            UDP_LOG_ERROR("Error writing to queue!"); 
-          }
+          UDP_LOG_ERROR("Error writing to queue!"); 
+          if(DEBUG) { Serial.println("Error writing to queue!"); }
         } 
         num_chunks--;
     }
@@ -371,10 +361,10 @@
 //------------------------------------------------------------------------------
 void setup () 
 {
-    if(debug) { Serial.begin(115200); }
+    if(DEBUG) { Serial.begin(115200); }
     SPI.begin();
     
-    /* Set the baudrate which is for debug and communicate with Nextion screen. */
+    /* Set the baudrate which is for DEBUG and communicate with Nextion screen. */
     nexInit();
 
     // connect to access point
@@ -382,16 +372,12 @@ void setup ()
     connectToWIFI();
 
     // setup rsyslog
-    if(debug) { 
-      UDP_LOG_BEGIN(LOGSERVER, LOG_MODE_DEBUG);
-      UDP_LOG_INFO("Starting Rubis Internet Radio");
-    }
+    UDP_LOG_BEGIN(LOGSERVER, LOG_MODE_DEBUG);
+    UDP_LOG_INFO("Starting Rubis Internet Radio");
 
     // import station list
-    if(debug) { 
-      Serial.println("Reading station list...");
-      UDP_LOG_INFO("Reading station list...");
-    }
+    if(DEBUG) { Serial.println("Reading station list..."); }
+    UDP_LOG_INFO("Reading station list...");
     t0.setText("Reading station list...");      
     HTTPClient  http;
     http.begin(url_stationlist);
@@ -401,21 +387,17 @@ void setup ()
       String payload = http.getString();
       stations.parseStations(payload);
     } 
-	http.end();
-	
+    http.end();
+    
     // initialize the mp3 board
-    if(debug) { 
-      Serial.println("Initializing MP3 board...");
-      UDP_LOG_INFO("Initializing MP3 board...");
-    }
+    if(DEBUG) { Serial.println("Initializing MP3 board..."); }
+    UDP_LOG_INFO("Initializing MP3 board...");
     t0.setText("Initializing MP3 board..."); 
     initMP3Decoder();
     if (!player.isChipConnected())
     { 
-      if(debug) { 
-        Serial.println("MP3 board failed!"); 
-        UDP_LOG_ERROR("MP3 board failed!");
-      }
+      if(DEBUG) { Serial.println("MP3 board failed!"); }
+      UDP_LOG_ERROR("MP3 board failed!");
       t0.setText("MP3 board failed!");
       while(true)
         delay(1000);
@@ -437,10 +419,8 @@ void setup ()
                               32 );        // The size of each item in the queue
 
     // Create the mp3 player task
-    if(debug) { 
-      Serial.println("Creating mp3 player task...");
-      UDP_LOG_INFO("Creating mp3 player task...");
-    }
+    if(DEBUG) { Serial.println("Creating mp3 player task..."); }
+    UDP_LOG_INFO("Creating mp3 player task...");
     t0.setText("Creating mp3 player task..."); 
     xTaskCreate(
                   task_mp3play,   // Function that implements the task.
