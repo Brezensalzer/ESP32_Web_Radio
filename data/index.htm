@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<title>Radio Stations Editor</title>
+		<style type="text/css" media="screen">
+			#editor { 
+				position: absolute;
+				top: 100px;
+				right: 500px;
+				bottom: 100px;
+				left: 50px;
+			}
+		</style>
+		<script src="https://code.jquery.com/jquery-3.3.1.min.js"
+			integrity="sha256-FgpCb/KJQlLNfOu91ta32o/NMZxltwRo8QtmkMRdAu8="
+			crossorigin="anonymous">
+		</script>
+        <meta charset="UTF-8">
+
+	<body>
+		<div>
+			<h3>ESP32 Webradio Stationsliste</h3>
+		</div>
+        <div id="editnav">
+            <input type="button" id="download_link" onclick="download()" value="Stationsliste download">
+            <input type="button" id="homebtn2" onclick="save()" value="Stationsliste speichern">
+        </div>
+        <div id="editor">some text</div> 
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.1.9/ace.js" type="text/javascript" charset="utf-8"></script>
+        <script>
+            var editor = ace.edit("editor");
+            editor.setTheme("ace/theme/monokai");
+            editor.setFontSize(16);
+            
+            $.get(	'http://esp32radio.local/stationlist.txt',
+					function (data, textStatus, jqXHR) {
+						editor.setValue(data); });
+			
+            function download() {
+				console.log("onclick event");
+				var data = new Blob([editor.getValue()], {type: 'text/plain'});
+				var a = document.createElement('a');
+				a.download = 'stationlist.txt';
+				a.href = URL.createObjectURL(data);
+				a.dataset.downloadurl = ['text/plain', a.download, a.href].join(':');
+				a.style.display = "none";
+				document.body.appendChild(a);
+				a.click();
+				document.body.removeChild(a);
+				setTimeout(function() { URL.revokeObjectURL(a.href); }, 1500);
+            }
+            
+            function save() {
+				var formData = new FormData();
+				var s = editor.getValue();
+				var filename = "stationlist.txt";
+				formData.append('file', new File([new Blob([s])], filename));
+
+				$.ajax({
+							url: 'http://esp32radio.local/save',
+							data: formData,
+							processData: false,
+							contentType: false,
+							type: 'POST',
+							success: function () {
+								console.log('ok');
+							},
+							error: function () {
+								console.log('err'); // replace with proper error handling
+							}
+						});		 
+			}
+        </script>	
+	</body>	
+</html>

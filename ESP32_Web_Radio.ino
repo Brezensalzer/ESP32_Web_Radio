@@ -6,6 +6,8 @@
 
 #include <VS1053.h>
 #include <WiFi.h>
+#include <WebServer.h>
+#include <ESPmDNS.h>
 #include <HTTPClient.h>
 #include <esp_wifi.h>
 #include <Nextion.h>
@@ -13,10 +15,16 @@
 #include "RadioStation.h"
 #include "config.h"
 
-#define DEBUG false
+#define DEBUG true
 #define LOGSERVER      "192.168.1.4"
 #define UDP_LOGGER
 #include <SimpleUDPLogger.h>
+const char* host = "esp32radio";
+
+#define FILESYSTEM SPIFFS
+#include <SPIFFS.h>
+File fsUploadFile;
+WebServer server(80);
 
 //------------------------------------------------------------------------------
 // mp3 module
@@ -357,6 +365,183 @@
   }
 
 //------------------------------------------------------------------------------
+void importStationlist()
+//------------------------------------------------------------------------------
+{
+    if(DEBUG) { Serial.println("Reading station list..."); }
+    UDP_LOG_INFO("Reading station list...");
+    t0.setText("Reading station list...");      
+    File file = FILESYSTEM.open("/stationlist.txt", "r");
+    if(!file)
+    {
+       if(DEBUG) { Serial.println("Error reading station list!"); }  
+       UDP_LOG_INFO("Error reading station list!");
+    }
+    else
+    {
+      String payload = file.readString();
+      stations.parseStations(payload);
+    }
+    file.close();  
+}
+
+//------------------------------------------------------------------------------
+// Webserver
+//------------------------------------------------------------------------------
+  //------------------------------------------------------------------------------
+  String formatBytes(size_t bytes)
+  //------------------------------------------------------------------------------
+  {
+    if (bytes < 1024) {
+      return String(bytes) + "B";
+    } else if (bytes < (1024 * 1024)) {
+      return String(bytes / 1024.0) + "KB";
+    } else if (bytes < (1024 * 1024 * 1024)) {
+      return String(bytes / 1024.0 / 1024.0) + "MB";
+    } else {
+      return String(bytes / 1024.0 / 1024.0 / 1024.0) + "GB";
+    }
+  }
+  
+  //------------------------------------------------------------------------------
+  String getContentType(String filename)
+  //------------------------------------------------------------------------------
+  {
+    if (server.hasArg("download")) {
+      return "application/octet-stream";
+    } else if (filename.endsWith(".htm")) {
+      return "text/html";
+    } else if (filename.endsWith(".html")) {
+      return "text/html";
+    } else if (filename.endsWith(".css")) {
+      return "text/css";
+    } else if (filename.endsWith(".js")) {
+      return "application/javascript";
+    } else if (filename.endsWith(".png")) {
+      return "image/png";
+    } else if (filename.endsWith(".gif")) {
+      return "image/gif";
+    } else if (filename.endsWith(".jpg")) {
+      return "image/jpeg";
+    } else if (filename.endsWith(".ico")) {
+      return "image/x-icon";
+    } else if (filename.endsWith(".xml")) {
+      return "text/xml";
+    } else if (filename.endsWith(".pdf")) {
+      return "application/x-pdf";
+    } else if (filename.endsWith(".zip")) {
+      return "application/x-zip";
+    } else if (filename.endsWith(".gz")) {
+      return "application/x-gzip";
+    }
+    return "text/plain";
+  }
+  
+  //------------------------------------------------------------------------------
+  bool exists(String path)
+  //------------------------------------------------------------------------------
+  {
+    bool yes = false;
+    File file = FILESYSTEM.open(path, "r");
+    if(!file.isDirectory()){
+      yes = true;
+    }
+    file.close();
+    return yes;
+  }
+  
+  //------------------------------------------------------------------------------
+  bool handleFileRead(String path)
+  //------------------------------------------------------------------------------
+  {
+    if(DEBUG) { Serial.println("handleFileRead: " + path); }
+    if (path.endsWith("/")) {
+      path += "index.htm";
+    }
+    String contentType = getContentType(path);
+    String pathWithGz = path + ".gz";
+    if (exists(pathWithGz) || exists(path)) {
+      if (exists(pathWithGz)) {
+        path += ".gz";
+      }
+      File file = FILESYSTEM.open(path, "r");
+      server.streamFile(file, contentType);
+      file.close();
+      return true;
+    }
+    return false;
+  }
+  
+  //------------------------------------------------------------------------------
+  void handleFileSave() {
+  //------------------------------------------------------------------------------
+    if (server.uri() != "/save") {
+      return;
+    }
+    HTTPUpload& upload = server.upload();
+    if (upload.status == UPLOAD_FILE_START) {
+      String filename = upload.filename;
+      if (!filename.startsWith("/")) {
+        filename = "/" + filename;
+      }
+      if(DEBUG) { Serial.print("handleFileUpload Name: "); Serial.println(filename); }
+      fsUploadFile = FILESYSTEM.open(filename, "w");
+      filename = String();
+    } else if (upload.status == UPLOAD_FILE_WRITE) {
+      if (fsUploadFile) {
+        fsUploadFile.write(upload.buf, upload.currentSize);
+      }
+    } else if (upload.status == UPLOAD_FILE_END) {
+      if (fsUploadFile) {
+        fsUploadFile.close();
+      }
+      if(DEBUG) { Serial.print("handleFileUpload Size: "); Serial.println(upload.totalSize); }
+      UDP_LOG_INFO("stationlist.txt saved");
+      importStationlist();
+    }
+  }
+  
+  //------------------------------------------------------------------------------
+  void initWebserver()
+  //------------------------------------------------------------------------------
+  {
+    FILESYSTEM.begin();
+    {
+      File root = FILESYSTEM.open("/");
+      File file = root.openNextFile();
+      while(file){
+          String fileName = file.name();
+          size_t fileSize = file.size();
+          if(DEBUG) { Serial.printf("FS File: %s, size: %s\n", fileName.c_str(), formatBytes(fileSize).c_str()); }
+          file = root.openNextFile();
+      }
+      if(DEBUG) { Serial.printf("\n"); }
+    }
+  
+    MDNS.begin(host);
+    if(DEBUG) { 
+      Serial.print("Open http://");
+      Serial.println(host);
+    }
+    
+    server.on("/save", HTTP_POST, []() {
+      server.send(200, "text/plain", "");
+    }, handleFileSave);
+
+  
+    //called when the url is not defined here
+    //use it to load content from FILESYSTEM
+    server.onNotFound([]() {
+      if (!handleFileRead(server.uri())) {
+        server.send(404, "text/plain", "FileNotFound");
+      }
+    });
+  
+    server.begin();
+    if(DEBUG) { Serial.println("Webserver started."); }
+  }
+  
+//------------------------------------------------------------------------------
 // setup
 //------------------------------------------------------------------------------
 void setup () 
@@ -375,20 +560,12 @@ void setup ()
     UDP_LOG_BEGIN(LOGSERVER, LOG_MODE_DEBUG);
     UDP_LOG_INFO("Starting Rubis Internet Radio");
 
-    // import station list
-    if(DEBUG) { Serial.println("Reading station list..."); }
-    UDP_LOG_INFO("Reading station list...");
-    t0.setText("Reading station list...");      
-    HTTPClient  http;
-    http.begin(url_stationlist);
-    int httpCode = http.GET();
-    if(httpCode == HTTP_CODE_OK)
-    {
-      String payload = http.getString();
-      stations.parseStations(payload);
-    } 
-    http.end();
+    // init webserver
+    initWebserver();
     
+    // import station list from SPIFF
+    importStationlist();
+      
     // initialize the mp3 board
     if(DEBUG) { Serial.println("Initializing MP3 board..."); }
     UDP_LOG_INFO("Initializing MP3 board...");
@@ -452,6 +629,9 @@ void loop()
 
     // read tcp stream and fill queue  
     mp3stream();
+
+    // Webserver
+    server.handleClient();
 
     // house keeping
     yield();

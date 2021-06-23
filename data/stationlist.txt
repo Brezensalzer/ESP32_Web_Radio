@@ -2,7 +2,6 @@ B5 aktuell;http://br-b5aktuell-live.cast.addradio.de/br/b5aktuell/live/mp3/mid
 BR Klassik;http://br-brklassik-live.cast.addradio.de/br/brklassik/live/mp3/mid
 Bayern 2;http://br-br2-sued.cast.addradio.de/br/br2/sued/mp3/mid
 Deutschlandfunk Kultur;http://st02.dlf.de/dlf/02/128/mp3/stream.mp3
-Jazz Radio BCN;http://node-22.zeno.fm:80/u40kkya8hg8uv
 Abacus Jazz;http://185.80.221.113:8034/stream
-SmoothJazz;http://sj128.hnux.com/
 City Jazz Radio;http://85.17.122.32:8252/stream
+Chillout;http://mp3channels.webradio.antenne.de/chillout

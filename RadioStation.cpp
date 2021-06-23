@@ -12,6 +12,7 @@ void StationList::parseStations(String lines)
   int newlineAt, semicolonAt;
   String line;
   String label, host, path;
+  numStations = 0;
 
   while (lines.indexOf("\n") != -1)
   {
