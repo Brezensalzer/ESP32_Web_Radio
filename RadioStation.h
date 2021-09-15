@@ -12,7 +12,7 @@ class RadioStation
 {
   public:
     char    label[25];
-    char    url[100];
+    char    url[250];
     // default constructor
     RadioStation() : label(), url()
     {    }

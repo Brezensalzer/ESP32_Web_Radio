@@ -12,13 +12,15 @@
 #include <esp_wifi.h>
 #include <Nextion.h>
 #include <Arduino.h>
+#include <credentials.h>
 #include "RadioStation.h"
-#include "config.h"
 
 #define DEBUG true
 #define LOGSERVER      "192.168.1.4"
 #define UDP_LOGGER
 #include <SimpleUDPLogger.h>
+const char* ssid = mySSID;
+const char* pass = myPASSWORD;
 const char* host = "esp32radio";
 
 #define FILESYSTEM SPIFFS
@@ -32,7 +34,7 @@ WebServer server(80);
   #define VS1053_CS    32 
   #define VS1053_DCS   33  
   #define VS1053_DREQ  35 
-  #define MIN_VOLUME  75
+  #define MIN_VOLUME  70
   #define MAX_VOLUME  100
   uint8_t volume = 82; // volume level 0-100
   uint8_t mp3buff[32];   // vs1053 likes 32 bytes at a time
@@ -274,7 +276,7 @@ WebServer server(80);
 
     char rc[4];
     int httpCode;  
-    char url[100];
+    char url[250];
     const char* headerNames[] = { "Location" };
     String Location;
     int pos;
@@ -299,15 +301,7 @@ WebServer server(80);
       if(DEBUG) { Serial.println("following redirect"); }
       UDP_LOG_INFO("following redirect");
       Location = http.header("Location");
-      pos = Location.indexOf('?');
-      if (pos == -1)
-      {
-        Location.toCharArray(url, Location.length()+1);
-      }
-      else
-      {
-        Location.toCharArray(url, pos+1);
-      }
+      Location.toCharArray(url, Location.length()+1);
       if(DEBUG) { Serial.println(url); }
       UDP_LOG_INFO(url);
 
